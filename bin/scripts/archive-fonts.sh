@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Nerd Fonts Version: 3.0.0
-# Script Version: 1.1.2
+# Script Version: 1.2.0
 # Iterates over all patched fonts directories
-# to generate ruby cask files for homebrew-fonts (https://github.com/caskroom/homebrew-fonts)
-# adds Windows versions of the fonts as well (casks files just won't download them)
-# used for debugging
-# set -x
+# to generate release archives of the patched font(s)
+#
 # Example run with pattern matching:
 # ./archive-fonts heavydata
 # Example with same font names for different paths
@@ -16,7 +14,6 @@ set -e
 LINE_PREFIX="# [Nerd Fonts] "
 scripts_root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
 parent_dir="${PWD}/../../"
-echo "dir $scripts_root_dir"
 outputdir=$scripts_root_dir../../archives
 
 mkdir -p "$outputdir"
@@ -50,7 +47,7 @@ find "${outputdir:?}" -name "$search_pattern" -type f -delete
 #find ./ProFont -maxdepth 0 -type d | # uncomment to test 1 font
 # find ./IBMPlexMono -maxdepth 0 -type d | # uncomment to test 1 font
 # uncomment to test all fonts:
-find . -maxdepth 1 -iregex "\./$pattern" -type d |
+find . -maxdepth 1 -iregex "\./$pattern" -type d | sort |
 while read -r filename
 do
 
@@ -59,6 +56,29 @@ do
 
   [[ -d "$outputdir" ]] || mkdir -p "$outputdir"
 
+    rm -f "${outputdir}/${basename}.tar"
+    expected=$(find "${searchdir}" -iname "*.[ot]tf" -exec echo "+" \; | wc -l)
+    echo "${LINE_PREFIX} Packing ${basename}.tar.xz (${expected} fonts)"
+    # This finds all files, uniq on the filename (ignoring path):
+    while IFS= read -d $'\0' -r descriptor; do
+        path=$(echo ${descriptor} | sed 's/|.*//')
+        file=$(echo ${descriptor} | sed 's/.*|//')
+        if $(echo ${file} | grep -qi '.[ot]tf'); then
+            expected=$((expected - 1))
+        fi
+        # Need to cd to the file because we want to archive 'flat' (without subdirs):
+        x=$(cd "$path" && tar rf "$outputdir/$basename.tar" --no-recursion "$file")
+    done < <(find "${searchdir}" -type f -exec bash -c 'printf "%s\000" "{}" | sed "s!\(.*\)/!\1|!"' \; | sort -z -u '-t|' -k2,2 | sort -z)
+
+    if [ $expected -ne 0 ]; then
+        # Should never happen, but who knows
+        echo "${LINE_PREFIX} Did not pack expected number of font files! Likely same font names for different paths."
+        exit 1
+    fi
+    x=$(cd "${outputdir}" && tar rf "${outputdir}/${basename}.tar" "readme.md")
+    xz -f -9 -T0 "${outputdir}/${basename}.tar"
+
+  # ZIP stuff:
   # add font files:
   # -ic (ignore case not working)
   zip -9 "$outputdir/$basename" -rj "$searchdir" -i '*.[ot]tf' -i '*.[OT]TF' -q
